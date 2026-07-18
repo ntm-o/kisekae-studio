@@ -40,8 +40,10 @@
   .btn:active{transform:scale(.95);}
   .btn.big{font-size:18px; padding:16px 26px;}
   .btn.ghost{background:#fff; color:var(--pink-d); border:2px solid #ffb6c9;}
+  .btn.mini{font-size:13px; padding:9px 16px;}
+  .btn.mini.off{background:#fff; color:var(--pink-d); border:2px solid #ffb6c9; box-shadow:none;}
   .btn:disabled{background:#e0d5d0; box-shadow:none; color:#fff;}
-  .btnrow{display:flex; gap:10px; justify-content:center; padding:10px 0 6px; flex-wrap:wrap;}
+  .btnrow{display:flex; gap:8px; justify-content:center; padding:10px 0 6px; flex-wrap:wrap;}
   .canvasWrap{flex:1; position:relative; border-radius:20px; overflow:hidden; background:#3a2e2b; box-shadow:var(--shadow); min-height:0;}
   canvas.stage{position:absolute; inset:0; width:100%; height:100%; touch-action:none; display:block;}
   .hint{text-align:center; font-size:12px; padding:8px 4px 2px; opacity:.8;}
@@ -56,12 +58,24 @@
     flex-direction:column; align-items:center; justify-content:center; padding:18px; z-index:30;
   }
   #resultModal.active{display:flex;}
-  #resultModal img{max-width:92%; max-height:58vh; border-radius:18px; border:5px solid #fff; box-shadow:var(--shadow);}
-  #praise{font-size:24px; font-weight:bold; color:var(--pink-d); margin:14px 0 4px; text-align:center;}
-  #praiseSub{font-size:12px; opacity:.7; margin-bottom:14px; text-align:center;}
+  #resultModal img{
+    max-width:92%; max-height:50vh; border-radius:18px; border:5px solid #fff; box-shadow:var(--shadow);
+    background:repeating-conic-gradient(#e8e8e8 0% 25%, #ffffff 0% 50%) 0 0/20px 20px;
+  }
+  #praise{font-size:24px; font-weight:bold; color:var(--pink-d); margin:10px 0 2px; text-align:center;}
+  #praiseSub{font-size:12px; opacity:.7; margin-bottom:10px; text-align:center;}
   .confetti{position:absolute; top:-40px; font-size:24px; animation:fall linear forwards; z-index:31; pointer-events:none;}
   @keyframes fall{to{transform:translateY(110vh) rotate(720deg); opacity:.9;}}
   input[type=file]{display:none;}
+  /* loading overlay */
+  #loading{
+    position:absolute; inset:0; background:rgba(255,247,240,.9); display:none;
+    flex-direction:column; align-items:center; justify-content:center; z-index:50; gap:14px;
+  }
+  #loading.active{display:flex;}
+  #loading .spin{font-size:44px; animation:spin 1.2s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  #loadingText{font-size:15px; font-weight:bold; color:var(--pink-d);}
 </style>
 </head>
 <body>
@@ -78,16 +92,30 @@
     </div>
     <div class="slot" id="slotCloth" onclick="fileCloth.click()">
       <div class="emoji">👕</div>
-      <div class="txt"><b>② 服の写真</b><span>この人の服を着せるよ(全身・上半身が写っている写真)</span></div>
+      <div class="txt"><b>② 服の写真</b><span>この人の服を着せるよ(アップ後に切り取りもできる)</span></div>
       <img class="thumb" id="thumbCloth" alt="">
     </div>
     <div class="btnrow">
-      <button class="btn big" id="btnStart" disabled onclick="gotoFaceSelect()">きせかえスタート ▶</button>
+      <button class="btn big" id="btnStart" disabled onclick="startGame()">✨ おまかせ合成でスタート ▶</button>
+    </div>
+    <div class="btnrow" style="padding-top:0">
+      <button class="btn ghost mini" id="btnManual" disabled onclick="gotoFaceSelect()">手動でやる</button>
     </div>
   </div>
   <p class="foot">写真は端末の中だけで処理されます(どこにも送信されません)</p>
   <input type="file" id="fileFace" accept="image/*">
   <input type="file" id="fileCloth" accept="image/*">
+</div>
+
+<!-- 服の切り取り -->
+<div id="scrCrop" class="screen">
+  <p class="hint">💡 白い枠の <b>角(○)をドラッグ</b> で大きさ、<b>枠の中をドラッグ</b> で移動</p>
+  <div class="canvasWrap"><canvas id="cvCrop" class="stage"></canvas></div>
+  <div class="btnrow">
+    <button class="btn ghost" onclick="cropReset()">全体にもどす</button>
+    <button class="btn ghost" onclick="cropSkip()">切り取らない</button>
+    <button class="btn" onclick="cropApply()">切り取る ✂️</button>
+  </div>
 </div>
 
 <!-- 顔えらび -->
@@ -113,8 +141,10 @@
     <label><span>なじませ</span><input type="range" id="rgFeather" min="5" max="70" value="35"></label>
   </div>
   <div class="btnrow">
-    <button class="btn ghost" onclick="gotoFaceSelect()">顔えらび直し</button>
-    <button class="btn ghost" onclick="flipFace()">左右反転 ↔</button>
+    <button class="btn ghost mini" onclick="gotoFaceSelect()">顔えらび</button>
+    <button class="btn ghost mini" onclick="openCrop('edit')">服✂️</button>
+    <button class="btn ghost mini" onclick="autoPlaceBtn()">🤖自動配置</button>
+    <button class="btn ghost mini" onclick="flipFace()">↔反転</button>
     <button class="btn big" onclick="finish()">かんせい! ✨</button>
   </div>
 </div>
@@ -124,34 +154,78 @@
   <div id="praise"></div>
   <div id="praiseSub">気に入ったら保存してね</div>
   <img id="resultImg" alt="きせかえ結果">
-  <div class="btnrow" style="margin-top:16px">
+  <div class="btnrow" style="margin-top:12px">
+    <button class="btn mini" id="bgOnBtn" onclick="setBg(true)">背景あり</button>
+    <button class="btn mini off" id="bgOffBtn" onclick="setBg(false)">背景なし(透過)</button>
+  </div>
+  <div class="btnrow">
     <button class="btn ghost" onclick="closeResult()">← 直す</button>
     <button class="btn" onclick="saveResult()">保存する 💾</button>
     <button class="btn ghost" onclick="restart()">最初から</button>
   </div>
 </div>
 
+<!-- ローディング -->
+<div id="loading"><div class="spin">🎀</div><div id="loadingText">じゅんび中…</div></div>
+
+<!-- MediaPipe (顔検出・人物切りぬき) -->
+<script type="module">
+window.__mpReady = (async () => {
+  try{
+    const v = await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14");
+    const fileset = await v.FilesetResolver.forVisionTasks(
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+    const fd = await v.FaceDetector.createFromOptions(fileset, {
+      baseOptions:{ modelAssetPath:"https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite" },
+      runningMode:"IMAGE"
+    });
+    let seg = null;
+    try{
+      seg = await v.ImageSegmenter.createFromOptions(fileset, {
+        baseOptions:{ modelAssetPath:"https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite" },
+        runningMode:"IMAGE", outputCategoryMask:false, outputConfidenceMasks:true
+      });
+    }catch(e){ console.warn("segmenter load failed", e); }
+    return {fd, seg};
+  }catch(e){
+    console.warn("MediaPipe load failed — manual mode only", e);
+    return null;
+  }
+})();
+window.__mpReady.then(r => { window.MP = r; });
+</script>
+
 <script>
 "use strict";
 /* ---------- 状態 ---------- */
-let faceImg = null, clothImg = null;      // 元画像
-let faceCropRaw = null;                   // 切り抜き(マスク前)canvas
+let faceImg = null;                       // 顔の元画像
+let clothImgFull = null;                  // 服の元画像(切り取り前)
+let clothImg = null;                      // 服画像(切り取り後: Image or canvas)
+let faceCropRaw = null;                   // 顔切り抜き(マスク前)canvas
 let faceLayer = null;                     // マスク後 canvas
 let feather = 0.35;
-let flip = 1;                             // 1 or -1
-// 顔えらび画面の状態
+let flip = 1;
+let faceAng = 0;                          // 顔写真の傾き(自動検出時)
+let segCanvas = null;                     // 人物切りぬきキャッシュ
+let bgMode = true;                        // true=背景あり
+const PAD = 1.3;
+// 顔えらび画面の状態(表示座標)
 const fsel = {k:1, ox:0, oy:0, cx:0, cy:0, rx:60, ratio:1.32};
-// 編集画面の状態(服画像の自然座標系で保持)
-const ed = {k:1, ox:0, oy:0, x:0, y:0, s:1, rot:0};
+// 編集画面の状態(服画像の自然座標系)
+const ed = {k:1, ox:0, oy:0, x:0, y:0, s:1, rot:0, _s0:1};
 let exportURL = null;
 
 const $ = id => document.getElementById(id);
 const dpr = Math.min(window.devicePixelRatio || 1, 3);
+const dims = i => ({w: i.naturalWidth || i.width, h: i.naturalHeight || i.height});
+const wait = ms => new Promise(r => setTimeout(r, ms));
 
 function showScreen(id){
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   $(id).classList.add('active');
 }
+function showLoading(t){ $('loadingText').textContent = t; $('loading').classList.add('active'); }
+function hideLoading(){ $('loading').classList.remove('active'); }
 
 /* ---------- 画像読み込み ---------- */
 function loadFile(input, cb){
@@ -164,19 +238,23 @@ function loadFile(input, cb){
 }
 $('fileFace').addEventListener('change', e=>{
   loadFile(e.target, (img,url)=>{
-    faceImg = img; faceLayer = null;
+    faceImg = img; faceLayer = null; faceCropRaw = null; faceAng = 0;
     $('thumbFace').src = url; $('slotFace').classList.add('done');
     checkReady();
   });
 });
 $('fileCloth').addEventListener('change', e=>{
   loadFile(e.target, (img,url)=>{
-    clothImg = img;
+    clothImgFull = img; clothImg = img; segCanvas = null;
     $('thumbCloth').src = url; $('slotCloth').classList.add('done');
     checkReady();
+    openCrop('home');   // アップ直後に切り取り画面へ
   });
 });
-function checkReady(){ $('btnStart').disabled = !(faceImg && clothImg); }
+function checkReady(){
+  const ok = !(faceImg && clothImg);
+  $('btnStart').disabled = ok; $('btnManual').disabled = ok;
+}
 
 /* ---------- キャンバス準備 ---------- */
 function fitCanvas(cv){
@@ -187,11 +265,161 @@ function fitCanvas(cv){
   return {w:r.width, h:r.height, ctx};
 }
 function fitImage(img, w, h){
-  const k = Math.min(w/img.naturalWidth, h/img.naturalHeight);
-  return {k, ox:(w-img.naturalWidth*k)/2, oy:(h-img.naturalHeight*k)/2};
+  const d = dims(img);
+  const k = Math.min(w/d.w, h/d.h);
+  return {k, ox:(w-d.w*k)/2, oy:(h-d.h*k)/2};
 }
 
-/* ---------- 顔えらび画面 ---------- */
+/* ---------- 顔検出ヘルパー ---------- */
+function detectFaceIn(imgOrCanvas){
+  if(!window.MP || !window.MP.fd) return null;
+  try{
+    const res = window.MP.fd.detect(imgOrCanvas);
+    if(res && res.detections && res.detections.length){
+      // いちばん大きい顔を採用
+      return res.detections.reduce((a,b)=> a.boundingBox.width >= b.boundingBox.width ? a : b);
+    }
+  }catch(e){ console.warn('detect failed', e); }
+  return null;
+}
+function faceAngle(det, img){
+  try{
+    const d = dims(img);
+    const re = det.keypoints[0], le = det.keypoints[1];
+    let a = Math.atan2((le.y-re.y)*d.h, (le.x-re.x)*d.w);
+    if(a >  Math.PI/2) a -= Math.PI;
+    if(a < -Math.PI/2) a += Math.PI;
+    return a;
+  }catch(e){ return 0; }
+}
+
+/* ---------- おまかせ合成 ---------- */
+async function startGame(){
+  showLoading('AIをじゅんび中…');
+  const mp = window.__mpReady ? await Promise.race([window.__mpReady, wait(20000).then(()=>null)]) : null;
+  if(!mp || !mp.fd){
+    hideLoading();
+    gotoFaceSelect();     // AIが使えない時は手動へ
+    return;
+  }
+  showLoading('AIが顔をさがし中…');
+  await wait(50);
+  const det = detectFaceIn(faceImg);
+  hideLoading();
+  if(det){
+    const bb = det.boundingBox;
+    faceAng = faceAngle(det, faceImg);
+    extractFaceNatural(bb.originX + bb.width/2, bb.originY + bb.height*0.52, bb.width*0.58);
+    gotoEdit(true);
+  }else{
+    gotoFaceSelect();     // 見つからなければ手動で
+  }
+}
+
+/* ---------- 服の切り取り画面 ---------- */
+let cropCtx, cropW, cropH;
+const ccrop = {k:1, ox:0, oy:0};
+const crect = {x:0, y:0, w:100, h:100};
+let cropReturn = 'home';
+function openCrop(ret){
+  cropReturn = ret;
+  showScreen('scrCrop');
+  requestAnimationFrame(()=>{
+    const {w,h,ctx} = fitCanvas($('cvCrop'));
+    cropCtx = ctx; cropW = w; cropH = h;
+    Object.assign(ccrop, fitImage(clothImgFull, w, h));
+    cropReset();
+  });
+}
+function cropReset(){
+  const d = dims(clothImgFull);
+  crect.x = ccrop.ox; crect.y = ccrop.oy;
+  crect.w = d.w*ccrop.k; crect.h = d.h*ccrop.k;
+  drawCrop();
+}
+function drawCrop(){
+  const c = cropCtx; if(!c) return;
+  const d = dims(clothImgFull);
+  c.clearRect(0,0,cropW,cropH);
+  c.drawImage(clothImgFull, ccrop.ox, ccrop.oy, d.w*ccrop.k, d.h*ccrop.k);
+  c.save();
+  c.beginPath();
+  c.rect(0,0,cropW,cropH);
+  c.rect(crect.x, crect.y, crect.w, crect.h);
+  c.fillStyle = 'rgba(0,0,0,.55)';
+  c.fill('evenodd');
+  c.restore();
+  c.save();
+  c.strokeStyle = '#fff'; c.lineWidth = 2.5; c.setLineDash([8,6]);
+  c.strokeRect(crect.x, crect.y, crect.w, crect.h);
+  c.setLineDash([]);
+  c.fillStyle = '#fff';
+  cornerPts().forEach(p=>{ c.beginPath(); c.arc(p[0],p[1],9,0,Math.PI*2); c.fill(); });
+  c.restore();
+}
+function cornerPts(){
+  return [[crect.x,crect.y],[crect.x+crect.w,crect.y],[crect.x,crect.y+crect.h],[crect.x+crect.w,crect.y+crect.h]];
+}
+(function setupCropPointer(){
+  const cv = $('cvCrop');
+  let mode = null, last = null;
+  cv.addEventListener('pointerdown', e=>{
+    cv.setPointerCapture(e.pointerId);
+    const x = e.offsetX, y = e.offsetY;
+    mode = null;
+    cornerPts().forEach((p,i)=>{ if(Math.hypot(x-p[0],y-p[1]) < 26) mode = i; });
+    if(mode===null && x>crect.x && x<crect.x+crect.w && y>crect.y && y<crect.y+crect.h) mode='move';
+    last = {x,y};
+    e.preventDefault();
+  });
+  cv.addEventListener('pointermove', e=>{
+    if(mode===null || !last) return;
+    const dx = e.offsetX-last.x, dy = e.offsetY-last.y;
+    last = {x:e.offsetX, y:e.offsetY};
+    const d = dims(clothImgFull);
+    const x0 = ccrop.ox, y0 = ccrop.oy, x1 = ccrop.ox+d.w*ccrop.k, y1 = ccrop.oy+d.h*ccrop.k;
+    if(mode==='move'){
+      crect.x = Math.min(Math.max(crect.x+dx, x0), x1-crect.w);
+      crect.y = Math.min(Math.max(crect.y+dy, y0), y1-crect.h);
+    }else{
+      let L = crect.x, T = crect.y, R = crect.x+crect.w, B = crect.y+crect.h;
+      if(mode===0){ L+=dx; T+=dy; } else if(mode===1){ R+=dx; T+=dy; }
+      else if(mode===2){ L+=dx; B+=dy; } else { R+=dx; B+=dy; }
+      L = Math.max(L, x0); T = Math.max(T, y0); R = Math.min(R, x1); B = Math.min(B, y1);
+      if(R-L > 40){ crect.x=L; crect.w=R-L; }
+      if(B-T > 40){ crect.y=T; crect.h=B-T; }
+    }
+    drawCrop();
+    e.preventDefault();
+  });
+  const up = ()=>{ mode=null; last=null; };
+  cv.addEventListener('pointerup', up);
+  cv.addEventListener('pointercancel', up);
+})();
+function cropApply(){
+  const d = dims(clothImgFull);
+  let nx = (crect.x-ccrop.ox)/ccrop.k, ny = (crect.y-ccrop.oy)/ccrop.k;
+  let nw = crect.w/ccrop.k, nh = crect.h/ccrop.k;
+  nx = Math.max(0, Math.round(nx)); ny = Math.max(0, Math.round(ny));
+  nw = Math.min(d.w-nx, Math.round(nw)); nh = Math.min(d.h-ny, Math.round(nh));
+  const c = document.createElement('canvas'); c.width = nw; c.height = nh;
+  c.getContext('2d').drawImage(clothImgFull, nx, ny, nw, nh, 0, 0, nw, nh);
+  clothImg = c; segCanvas = null;
+  // サムネ更新
+  const t = document.createElement('canvas');
+  const tk = 128/Math.max(nw,nh);
+  t.width = Math.max(1,Math.round(nw*tk)); t.height = Math.max(1,Math.round(nh*tk));
+  t.getContext('2d').drawImage(c, 0, 0, t.width, t.height);
+  $('thumbCloth').src = t.toDataURL();
+  afterCrop();
+}
+function cropSkip(){ clothImg = clothImgFull; segCanvas = null; afterCrop(); }
+function afterCrop(){
+  if(cropReturn === 'edit'){ gotoEdit(true); }
+  else showScreen('scrHome');
+}
+
+/* ---------- 顔えらび画面(手動) ---------- */
 let faceCtx, faceW, faceH;
 function gotoFaceSelect(){
   showScreen('scrFace');
@@ -199,18 +427,29 @@ function gotoFaceSelect(){
     const {w,h,ctx} = fitCanvas($('cvFace'));
     faceCtx = ctx; faceW = w; faceH = h;
     Object.assign(fsel, fitImage(faceImg, w, h));
-    fsel.cx = w/2; fsel.cy = h*0.42;
-    fsel.rx = Math.min(w,h)*0.18;
-    $('rgFaceSize').value = fsel.rx;
+    // AIが使えるなら枠を自動で顔に合わせておく
+    const det = detectFaceIn(faceImg);
+    if(det){
+      const bb = det.boundingBox;
+      fsel.cx = fsel.ox + (bb.originX + bb.width/2)*fsel.k;
+      fsel.cy = fsel.oy + (bb.originY + bb.height*0.52)*fsel.k;
+      fsel.rx = bb.width*0.58*fsel.k;
+      faceAng = faceAngle(det, faceImg);
+    }else{
+      fsel.cx = w/2; fsel.cy = h*0.42;
+      fsel.rx = Math.min(w,h)*0.18;
+      faceAng = 0;
+    }
     $('rgFaceSize').max = Math.min(w,h)*0.5;
+    $('rgFaceSize').value = fsel.rx;
     drawFaceSel();
   });
 }
 function drawFaceSel(){
   const c = faceCtx; if(!c) return;
+  const d = dims(faceImg);
   c.clearRect(0,0,faceW,faceH);
-  c.drawImage(faceImg, fsel.ox, fsel.oy, faceImg.naturalWidth*fsel.k, faceImg.naturalHeight*fsel.k);
-  // 外側を暗く
+  c.drawImage(faceImg, fsel.ox, fsel.oy, d.w*fsel.k, d.h*fsel.k);
   c.save();
   c.beginPath();
   c.rect(0,0,faceW,faceH);
@@ -218,7 +457,6 @@ function drawFaceSel(){
   c.fillStyle = 'rgba(0,0,0,.55)';
   c.fill('evenodd');
   c.restore();
-  // 枠
   c.save();
   c.strokeStyle = '#fff'; c.lineWidth = 2.5; c.setLineDash([8,6]);
   c.beginPath();
@@ -231,19 +469,20 @@ $('rgFaceSize').addEventListener('input', e=>{ fsel.rx = +e.target.value; drawFa
 /* ---------- 顔切り抜き ---------- */
 function confirmFace(){
   const nx = (fsel.cx - fsel.ox)/fsel.k, ny = (fsel.cy - fsel.oy)/fsel.k;
-  const nrx = fsel.rx/fsel.k, nry = fsel.rx*fsel.ratio/fsel.k;
-  const pad = 1.3;
-  const w = Math.max(8, Math.round(nrx*2*pad)), h = Math.max(8, Math.round(nry*2*pad));
+  extractFaceNatural(nx, ny, fsel.rx/fsel.k);
+  gotoEdit(true);
+}
+function extractFaceNatural(nx, ny, nrx){
+  const nry = nrx*fsel.ratio;
+  const w = Math.max(8, Math.round(nrx*2*PAD)), h = Math.max(8, Math.round(nry*2*PAD));
   const c = document.createElement('canvas'); c.width = w; c.height = h;
   const g = c.getContext('2d');
   g.drawImage(faceImg, nx-w/2, ny-h/2, w, h, 0, 0, w, h);
   faceCropRaw = c;
-  faceCropRaw._pad = pad;
   rebuildFaceLayer();
-  gotoEdit(true);
 }
 function rebuildFaceLayer(){
-  const src = faceCropRaw, pad = src._pad;
+  const src = faceCropRaw;
   const c = document.createElement('canvas'); c.width = src.width; c.height = src.height;
   const g = c.getContext('2d');
   g.drawImage(src, 0, 0);
@@ -251,10 +490,10 @@ function rebuildFaceLayer(){
   g.save();
   g.translate(c.width/2, c.height/2);
   g.scale(1, c.height/c.width);
-  const R = c.width/2;                       // pad込みの半径
+  const R = c.width/2;
   const grad = g.createRadialGradient(0,0,0, 0,0,R);
-  const solidEnd = Math.max(0.05, (1 - feather)/pad);
-  const fadeEnd = Math.min(1, 1/pad);
+  const solidEnd = Math.max(0.05, (1 - feather)/PAD);
+  const fadeEnd = Math.min(1, 1/PAD);
   grad.addColorStop(0, 'rgba(0,0,0,1)');
   grad.addColorStop(solidEnd, 'rgba(0,0,0,1)');
   grad.addColorStop(fadeEnd, 'rgba(0,0,0,0)');
@@ -274,28 +513,47 @@ function gotoEdit(reset){
     edCtx = ctx; edW = w; edH = h;
     Object.assign(ed, fitImage(clothImg, w, h));
     if(reset){
-      // 顔の初期配置:服画像の自然座標で 中央上部、幅は服画像幅の30%
-      ed.x = clothImg.naturalWidth/2;
-      ed.y = clothImg.naturalHeight*0.18;
-      ed.s = (clothImg.naturalWidth*0.30)/faceLayer.width;
-      ed.rot = 0; flip = 1;
-      $('rgScale').value = 100; $('rgRot').value = 0;
+      autoPlace();
       ed._s0 = ed.s;
+      $('rgScale').value = 100;
+      $('rgRot').value = Math.max(-45, Math.min(45, ed.rot*180/Math.PI));
+      flip = 1;
     }
     drawEdit();
   });
 }
+function autoPlace(){
+  const d = dims(clothImg);
+  const det = detectFaceIn(clothImg);
+  if(det){
+    const bb = det.boundingBox;
+    ed.x = bb.originX + bb.width/2;
+    ed.y = bb.originY + bb.height*0.52;
+    ed.s = (bb.width*1.18*PAD)/faceLayer.width;
+    ed.rot = faceAngle(det, clothImg) - faceAng;
+  }else{
+    ed.x = d.w/2;
+    ed.y = d.h*0.18;
+    ed.s = (d.w*0.30)/faceLayer.width;
+    ed.rot = 0;
+  }
+}
+function autoPlaceBtn(){
+  autoPlace();
+  ed._s0 = ed.s;
+  $('rgScale').value = 100;
+  $('rgRot').value = Math.max(-45, Math.min(45, ed.rot*180/Math.PI));
+  drawEdit();
+}
 function drawEdit(){
   const c = edCtx; if(!c) return;
+  const d = dims(clothImg);
   c.clearRect(0,0,edW,edH);
-  c.drawImage(clothImg, ed.ox, ed.oy, clothImg.naturalWidth*ed.k, clothImg.naturalHeight*ed.k);
-  drawFaceOn(c, ed.k, ed.ox, ed.oy);
-}
-function drawFaceOn(c, k, ox, oy){
+  c.drawImage(clothImg, ed.ox, ed.oy, d.w*ed.k, d.h*ed.k);
   c.save();
-  c.translate(ox + ed.x*k, oy + ed.y*k);
+  c.translate(ed.ox + ed.x*ed.k, ed.oy + ed.y*ed.k);
   c.rotate(ed.rot);
-  c.scale(ed.s*k*flip, ed.s*k);
+  c.scale(ed.s*ed.k*flip, ed.s*ed.k);
   c.drawImage(faceLayer, -faceLayer.width/2, -faceLayer.height/2);
   c.restore();
 }
@@ -304,10 +562,10 @@ $('rgRot').addEventListener('input', e=>{ ed.rot = (+e.target.value)*Math.PI/180
 $('rgFeather').addEventListener('input', e=>{ feather = (+e.target.value)/100; rebuildFaceLayer(); drawEdit(); });
 function flipFace(){ flip *= -1; drawEdit(); }
 
-/* ---------- ジェスチャー(共通) ---------- */
+/* ---------- ジェスチャー ---------- */
 function addGestures(cv, handlers){
   const pts = new Map();
-  let prev = null; // {x,y} or {d,ang,mx,my}
+  let prev = null;
   cv.addEventListener('pointerdown', e=>{
     cv.setPointerCapture(e.pointerId);
     pts.set(e.pointerId, {x:e.offsetX, y:e.offsetY});
@@ -357,16 +615,67 @@ addGestures($('cvEdit'), {
   }
 });
 
+/* ---------- 人物切りぬき(背景なし用) ---------- */
+async function personCanvas(){
+  if(segCanvas) return segCanvas;
+  const mp = window.__mpReady ? await Promise.race([window.__mpReady, wait(20000).then(()=>null)]) : null;
+  if(!mp || !mp.seg) return null;
+  try{
+    const d = dims(clothImg);
+    const scale = Math.min(1, 1024/Math.max(d.w, d.h));
+    const sc = document.createElement('canvas');
+    sc.width = Math.max(1,Math.round(d.w*scale)); sc.height = Math.max(1,Math.round(d.h*scale));
+    sc.getContext('2d').drawImage(clothImg, 0, 0, sc.width, sc.height);
+    const res = mp.seg.segment(sc);
+    const masks = res.confidenceMasks;
+    const m = masks.length > 1 ? masks[1] : masks[0];
+    const mw = m.width, mh = m.height;
+    const arr = m.getAsFloat32Array();
+    // マスクの向き(人物=高い値か)を自動判定
+    let border=0, bc=0, center=0, cc=0;
+    const sx = Math.max(1, mw>>5), sy = Math.max(1, mh>>5);
+    for(let x=0;x<mw;x+=sx){ border+=arr[x]+arr[(mh-1)*mw+x]; bc+=2; }
+    for(let y=(mh*0.4)|0; y<mh*0.6; y+=sy)
+      for(let x=(mw*0.4)|0; x<mw*0.6; x+=sx){ center+=arr[y*mw+x]; cc++; }
+    const invert = (border/bc) > (center/Math.max(1,cc));
+    const mc = document.createElement('canvas'); mc.width = mw; mc.height = mh;
+    const mctx = mc.getContext('2d');
+    const id = mctx.createImageData(mw, mh);
+    for(let i=0;i<mw*mh;i++){
+      let v = invert ? 1-arr[i] : arr[i];
+      let a = (v-0.35)/0.4; a = a<0?0:a>1?1:a;
+      id.data[i*4+3] = a*255;
+    }
+    mctx.putImageData(id, 0, 0);
+    try{ masks.forEach(mm=>mm.close && mm.close()); res.close && res.close(); }catch(_e){}
+    const pc = document.createElement('canvas'); pc.width = d.w; pc.height = d.h;
+    const g = pc.getContext('2d');
+    g.drawImage(clothImg, 0, 0, d.w, d.h);
+    g.globalCompositeOperation = 'destination-in';
+    g.imageSmoothingEnabled = true;
+    g.drawImage(mc, 0, 0, d.w, d.h);
+    segCanvas = pc;
+    return pc;
+  }catch(e){ console.warn('segment failed', e); return null; }
+}
+
 /* ---------- 完成・保存 ---------- */
 const PRAISES = ['✨ さいこうに かわいい! ✨','💖 にあってる〜! 💖','🌟 モデルさんみたい! 🌟','🎀 おしゃれ大成功! 🎀','😍 うん、これは優勝 😍'];
-function finish(){
-  // 服画像の自然サイズで書き出し(最大2000px)
-  const nw = clothImg.naturalWidth, nh = clothImg.naturalHeight;
-  const m = Math.min(1, 2000/Math.max(nw,nh));
+async function compose(){
+  let base = clothImg;
+  if(!bgMode){
+    showLoading('背景を切りぬき中…');
+    const pc = await personCanvas();
+    hideLoading();
+    if(pc) base = pc;
+    else{ alert('この端末では「背景なし」が使えませんでした(通信をご確認ください)'); bgMode = true; updateBgBtns(); }
+  }
+  const d = dims(clothImg);
+  const m = Math.min(1, 2000/Math.max(d.w, d.h));
   const c = document.createElement('canvas');
-  c.width = Math.round(nw*m); c.height = Math.round(nh*m);
+  c.width = Math.round(d.w*m); c.height = Math.round(d.h*m);
   const g = c.getContext('2d');
-  g.drawImage(clothImg, 0, 0, c.width, c.height);
+  g.drawImage(base, 0, 0, c.width, c.height);
   g.save();
   g.translate(ed.x*m, ed.y*m);
   g.rotate(ed.rot);
@@ -375,11 +684,24 @@ function finish(){
   g.restore();
   exportURL = c.toDataURL('image/png');
   $('resultImg').src = exportURL;
+}
+async function finish(){
+  await compose();
   $('praise').textContent = PRAISES[Math.floor(Math.random()*PRAISES.length)];
   $('resultModal').classList.add('active');
-  confetti();
+  confettiFall();
 }
-function confetti(){
+function updateBgBtns(){
+  $('bgOnBtn').classList.toggle('off', !bgMode);
+  $('bgOffBtn').classList.toggle('off', bgMode);
+}
+async function setBg(on){
+  if(bgMode === on) return;
+  bgMode = on;
+  updateBgBtns();
+  await compose();
+}
+function confettiFall(){
   const em = ['🎀','💖','✨','🌸','⭐','💫'];
   for(let i=0;i<26;i++){
     const s = document.createElement('span');
@@ -407,6 +729,7 @@ function restart(){
 window.addEventListener('resize', ()=>{
   if($('scrFace').classList.contains('active')) gotoFaceSelect();
   else if($('scrEdit').classList.contains('active')) gotoEdit(false);
+  else if($('scrCrop').classList.contains('active')) openCrop(cropReturn);
 });
 </script>
 </body>
