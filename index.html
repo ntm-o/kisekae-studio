@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>きせかえスタジオ</title>
+<style>
+  :root{
+    --pink:#ff8fb1; --pink-d:#f06292; --cream:#fff7f0; --brown:#6d4c41;
+    --card:#ffffff; --shadow:0 6px 20px rgba(240,98,146,.18);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; padding:0; height:100%;}
+  body{
+    font-family:"Hiragino Maru Gothic ProN","Rounded Mplus 1c","Yu Gothic",system-ui,sans-serif;
+    background:linear-gradient(160deg,#ffe3ec 0%,#fff7f0 55%,#e3f2fd 100%);
+    color:var(--brown); overflow:hidden; position:fixed; inset:0;
+  }
+  .screen{position:absolute; inset:0; display:none; flex-direction:column; padding:14px; overflow:hidden;}
+  .screen.active{display:flex;}
+  h1{font-size:26px; text-align:center; margin:10px 0 2px; color:var(--pink-d); letter-spacing:2px;}
+  .sub{text-align:center; font-size:12px; margin:0 0 14px; opacity:.75;}
+  .cards{display:flex; flex-direction:column; gap:14px; flex:1; justify-content:center; max-width:420px; width:100%; margin:0 auto;}
+  .slot{
+    background:var(--card); border:3px dashed #ffb6c9; border-radius:22px; padding:16px;
+    display:flex; align-items:center; gap:14px; box-shadow:var(--shadow); cursor:pointer; min-height:110px;
+  }
+  .slot.done{border-style:solid; border-color:var(--pink);}
+  .slot .emoji{font-size:38px;}
+  .slot .txt{flex:1;}
+  .slot .txt b{font-size:17px; display:block; margin-bottom:4px;}
+  .slot .txt span{font-size:12px; opacity:.7;}
+  .thumb{width:64px; height:64px; border-radius:14px; object-fit:cover; display:none; border:2px solid var(--pink);}
+  .slot.done .thumb{display:block;}
+  .btn{
+    border:none; border-radius:999px; padding:14px 22px; font-size:16px; font-weight:bold;
+    background:var(--pink); color:#fff; box-shadow:var(--shadow); cursor:pointer;
+    font-family:inherit; transition:transform .1s;
+  }
+  .btn:active{transform:scale(.95);}
+  .btn.big{font-size:18px; padding:16px 26px;}
+  .btn.ghost{background:#fff; color:var(--pink-d); border:2px solid #ffb6c9;}
+  .btn:disabled{background:#e0d5d0; box-shadow:none; color:#fff;}
+  .btnrow{display:flex; gap:10px; justify-content:center; padding:10px 0 6px; flex-wrap:wrap;}
+  .canvasWrap{flex:1; position:relative; border-radius:20px; overflow:hidden; background:#3a2e2b; box-shadow:var(--shadow); min-height:0;}
+  canvas.stage{position:absolute; inset:0; width:100%; height:100%; touch-action:none; display:block;}
+  .hint{text-align:center; font-size:12px; padding:8px 4px 2px; opacity:.8;}
+  .sliders{padding:6px 8px 0; max-width:460px; margin:0 auto; width:100%;}
+  .sliders label{display:flex; align-items:center; gap:10px; font-size:13px; margin:6px 0;}
+  .sliders label span{width:58px; text-align:right;}
+  input[type=range]{flex:1; accent-color:var(--pink-d); height:28px;}
+  .foot{text-align:center; font-size:10px; opacity:.55; padding-top:8px;}
+  /* result modal */
+  #resultModal{
+    position:absolute; inset:0; background:rgba(255,227,236,.94); display:none;
+    flex-direction:column; align-items:center; justify-content:center; padding:18px; z-index:30;
+  }
+  #resultModal.active{display:flex;}
+  #resultModal img{max-width:92%; max-height:58vh; border-radius:18px; border:5px solid #fff; box-shadow:var(--shadow);}
+  #praise{font-size:24px; font-weight:bold; color:var(--pink-d); margin:14px 0 4px; text-align:center;}
+  #praiseSub{font-size:12px; opacity:.7; margin-bottom:14px; text-align:center;}
+  .confetti{position:absolute; top:-40px; font-size:24px; animation:fall linear forwards; z-index:31; pointer-events:none;}
+  @keyframes fall{to{transform:translateY(110vh) rotate(720deg); opacity:.9;}}
+  input[type=file]{display:none;}
+</style>
+</head>
+<body>
+
+<!-- ホーム -->
+<div id="scrHome" class="screen active">
+  <h1>👗 きせかえスタジオ 💫</h1>
+  <p class="sub">顔の写真 × 服の写真 で きせかえしちゃおう!</p>
+  <div class="cards">
+    <div class="slot" id="slotFace" onclick="fileFace.click()">
+      <div class="emoji">😊</div>
+      <div class="txt"><b>① 顔の写真</b><span>この人の顔を使うよ</span></div>
+      <img class="thumb" id="thumbFace" alt="">
+    </div>
+    <div class="slot" id="slotCloth" onclick="fileCloth.click()">
+      <div class="emoji">👕</div>
+      <div class="txt"><b>② 服の写真</b><span>この人の服を着せるよ(全身・上半身が写っている写真)</span></div>
+      <img class="thumb" id="thumbCloth" alt="">
+    </div>
+    <div class="btnrow">
+      <button class="btn big" id="btnStart" disabled onclick="gotoFaceSelect()">きせかえスタート ▶</button>
+    </div>
+  </div>
+  <p class="foot">写真は端末の中だけで処理されます(どこにも送信されません)</p>
+  <input type="file" id="fileFace" accept="image/*">
+  <input type="file" id="fileCloth" accept="image/*">
+</div>
+
+<!-- 顔えらび -->
+<div id="scrFace" class="screen">
+  <p class="hint">💡 まるい枠を <b>ドラッグ</b> して顔に合わせてね(2本指 or スライダーで大きさ)</p>
+  <div class="canvasWrap"><canvas id="cvFace" class="stage"></canvas></div>
+  <div class="sliders">
+    <label><span>大きさ</span><input type="range" id="rgFaceSize" min="20" max="200" value="70"></label>
+  </div>
+  <div class="btnrow">
+    <button class="btn ghost" onclick="showScreen('scrHome')">← もどる</button>
+    <button class="btn" onclick="confirmFace()">この顔でOK! ✂️</button>
+  </div>
+</div>
+
+<!-- きせかえ編集 -->
+<div id="scrEdit" class="screen">
+  <p class="hint">💡 顔を <b>ドラッグ</b> で移動、<b>2本指</b> で大きさ・回転できるよ</p>
+  <div class="canvasWrap"><canvas id="cvEdit" class="stage"></canvas></div>
+  <div class="sliders">
+    <label><span>大きさ</span><input type="range" id="rgScale" min="10" max="300" value="100"></label>
+    <label><span>回転</span><input type="range" id="rgRot" min="-45" max="45" value="0"></label>
+    <label><span>なじませ</span><input type="range" id="rgFeather" min="5" max="70" value="35"></label>
+  </div>
+  <div class="btnrow">
+    <button class="btn ghost" onclick="gotoFaceSelect()">顔えらび直し</button>
+    <button class="btn ghost" onclick="flipFace()">左右反転 ↔</button>
+    <button class="btn big" onclick="finish()">かんせい! ✨</button>
+  </div>
+</div>
+
+<!-- 結果 -->
+<div id="resultModal">
+  <div id="praise"></div>
+  <div id="praiseSub">気に入ったら保存してね</div>
+  <img id="resultImg" alt="きせかえ結果">
+  <div class="btnrow" style="margin-top:16px">
+    <button class="btn ghost" onclick="closeResult()">← 直す</button>
+    <button class="btn" onclick="saveResult()">保存する 💾</button>
+    <button class="btn ghost" onclick="restart()">最初から</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ---------- 状態 ---------- */
+let faceImg = null, clothImg = null;      // 元画像
+let faceCropRaw = null;                   // 切り抜き(マスク前)canvas
+let faceLayer = null;                     // マスク後 canvas
+let feather = 0.35;
+let flip = 1;                             // 1 or -1
+// 顔えらび画面の状態
+const fsel = {k:1, ox:0, oy:0, cx:0, cy:0, rx:60, ratio:1.32};
+// 編集画面の状態(服画像の自然座標系で保持)
+const ed = {k:1, ox:0, oy:0, x:0, y:0, s:1, rot:0};
+let exportURL = null;
+
+const $ = id => document.getElementById(id);
+const dpr = Math.min(window.devicePixelRatio || 1, 3);
+
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  $(id).classList.add('active');
+}
+
+/* ---------- 画像読み込み ---------- */
+function loadFile(input, cb){
+  const f = input.files && input.files[0];
+  if(!f) return;
+  const url = URL.createObjectURL(f);
+  const img = new Image();
+  img.onload = ()=>cb(img, url);
+  img.src = url;
+}
+$('fileFace').addEventListener('change', e=>{
+  loadFile(e.target, (img,url)=>{
+    faceImg = img; faceLayer = null;
+    $('thumbFace').src = url; $('slotFace').classList.add('done');
+    checkReady();
+  });
+});
+$('fileCloth').addEventListener('change', e=>{
+  loadFile(e.target, (img,url)=>{
+    clothImg = img;
+    $('thumbCloth').src = url; $('slotCloth').classList.add('done');
+    checkReady();
+  });
+});
+function checkReady(){ $('btnStart').disabled = !(faceImg && clothImg); }
+
+/* ---------- キャンバス準備 ---------- */
+function fitCanvas(cv){
+  const r = cv.parentElement.getBoundingClientRect();
+  cv.width = Math.round(r.width*dpr); cv.height = Math.round(r.height*dpr);
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  return {w:r.width, h:r.height, ctx};
+}
+function fitImage(img, w, h){
+  const k = Math.min(w/img.naturalWidth, h/img.naturalHeight);
+  return {k, ox:(w-img.naturalWidth*k)/2, oy:(h-img.naturalHeight*k)/2};
+}
+
+/* ---------- 顔えらび画面 ---------- */
+let faceCtx, faceW, faceH;
+function gotoFaceSelect(){
+  showScreen('scrFace');
+  requestAnimationFrame(()=>{
+    const {w,h,ctx} = fitCanvas($('cvFace'));
+    faceCtx = ctx; faceW = w; faceH = h;
+    Object.assign(fsel, fitImage(faceImg, w, h));
+    fsel.cx = w/2; fsel.cy = h*0.42;
+    fsel.rx = Math.min(w,h)*0.18;
+    $('rgFaceSize').value = fsel.rx;
+    $('rgFaceSize').max = Math.min(w,h)*0.5;
+    drawFaceSel();
+  });
+}
+function drawFaceSel(){
+  const c = faceCtx; if(!c) return;
+  c.clearRect(0,0,faceW,faceH);
+  c.drawImage(faceImg, fsel.ox, fsel.oy, faceImg.naturalWidth*fsel.k, faceImg.naturalHeight*fsel.k);
+  // 外側を暗く
+  c.save();
+  c.beginPath();
+  c.rect(0,0,faceW,faceH);
+  c.ellipse(fsel.cx, fsel.cy, fsel.rx, fsel.rx*fsel.ratio, 0, 0, Math.PI*2);
+  c.fillStyle = 'rgba(0,0,0,.55)';
+  c.fill('evenodd');
+  c.restore();
+  // 枠
+  c.save();
+  c.strokeStyle = '#fff'; c.lineWidth = 2.5; c.setLineDash([8,6]);
+  c.beginPath();
+  c.ellipse(fsel.cx, fsel.cy, fsel.rx, fsel.rx*fsel.ratio, 0, 0, Math.PI*2);
+  c.stroke();
+  c.restore();
+}
+$('rgFaceSize').addEventListener('input', e=>{ fsel.rx = +e.target.value; drawFaceSel(); });
+
+/* ---------- 顔切り抜き ---------- */
+function confirmFace(){
+  const nx = (fsel.cx - fsel.ox)/fsel.k, ny = (fsel.cy - fsel.oy)/fsel.k;
+  const nrx = fsel.rx/fsel.k, nry = fsel.rx*fsel.ratio/fsel.k;
+  const pad = 1.3;
+  const w = Math.max(8, Math.round(nrx*2*pad)), h = Math.max(8, Math.round(nry*2*pad));
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d');
+  g.drawImage(faceImg, nx-w/2, ny-h/2, w, h, 0, 0, w, h);
+  faceCropRaw = c;
+  faceCropRaw._pad = pad;
+  rebuildFaceLayer();
+  gotoEdit(true);
+}
+function rebuildFaceLayer(){
+  const src = faceCropRaw, pad = src._pad;
+  const c = document.createElement('canvas'); c.width = src.width; c.height = src.height;
+  const g = c.getContext('2d');
+  g.drawImage(src, 0, 0);
+  g.globalCompositeOperation = 'destination-in';
+  g.save();
+  g.translate(c.width/2, c.height/2);
+  g.scale(1, c.height/c.width);
+  const R = c.width/2;                       // pad込みの半径
+  const grad = g.createRadialGradient(0,0,0, 0,0,R);
+  const solidEnd = Math.max(0.05, (1 - feather)/pad);
+  const fadeEnd = Math.min(1, 1/pad);
+  grad.addColorStop(0, 'rgba(0,0,0,1)');
+  grad.addColorStop(solidEnd, 'rgba(0,0,0,1)');
+  grad.addColorStop(fadeEnd, 'rgba(0,0,0,0)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = grad;
+  g.fillRect(-c.width/2, -c.width/2, c.width, c.width);
+  g.restore();
+  faceLayer = c;
+}
+
+/* ---------- 編集画面 ---------- */
+let edCtx, edW, edH;
+function gotoEdit(reset){
+  showScreen('scrEdit');
+  requestAnimationFrame(()=>{
+    const {w,h,ctx} = fitCanvas($('cvEdit'));
+    edCtx = ctx; edW = w; edH = h;
+    Object.assign(ed, fitImage(clothImg, w, h));
+    if(reset){
+      // 顔の初期配置:服画像の自然座標で 中央上部、幅は服画像幅の30%
+      ed.x = clothImg.naturalWidth/2;
+      ed.y = clothImg.naturalHeight*0.18;
+      ed.s = (clothImg.naturalWidth*0.30)/faceLayer.width;
+      ed.rot = 0; flip = 1;
+      $('rgScale').value = 100; $('rgRot').value = 0;
+      ed._s0 = ed.s;
+    }
+    drawEdit();
+  });
+}
+function drawEdit(){
+  const c = edCtx; if(!c) return;
+  c.clearRect(0,0,edW,edH);
+  c.drawImage(clothImg, ed.ox, ed.oy, clothImg.naturalWidth*ed.k, clothImg.naturalHeight*ed.k);
+  drawFaceOn(c, ed.k, ed.ox, ed.oy);
+}
+function drawFaceOn(c, k, ox, oy){
+  c.save();
+  c.translate(ox + ed.x*k, oy + ed.y*k);
+  c.rotate(ed.rot);
+  c.scale(ed.s*k*flip, ed.s*k);
+  c.drawImage(faceLayer, -faceLayer.width/2, -faceLayer.height/2);
+  c.restore();
+}
+$('rgScale').addEventListener('input', e=>{ ed.s = ed._s0 * (+e.target.value/100); drawEdit(); });
+$('rgRot').addEventListener('input', e=>{ ed.rot = (+e.target.value)*Math.PI/180; drawEdit(); });
+$('rgFeather').addEventListener('input', e=>{ feather = (+e.target.value)/100; rebuildFaceLayer(); drawEdit(); });
+function flipFace(){ flip *= -1; drawEdit(); }
+
+/* ---------- ジェスチャー(共通) ---------- */
+function addGestures(cv, handlers){
+  const pts = new Map();
+  let prev = null; // {x,y} or {d,ang,mx,my}
+  cv.addEventListener('pointerdown', e=>{
+    cv.setPointerCapture(e.pointerId);
+    pts.set(e.pointerId, {x:e.offsetX, y:e.offsetY});
+    prev = snapshot();
+    e.preventDefault();
+  });
+  cv.addEventListener('pointermove', e=>{
+    if(!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, {x:e.offsetX, y:e.offsetY});
+    const cur = snapshot();
+    if(prev && cur){
+      if(pts.size === 1 && prev.one && cur.one){
+        handlers.drag(cur.mx - prev.mx, cur.my - prev.my);
+      }else if(pts.size >= 2 && prev.d && cur.d){
+        handlers.pinch(cur.d/prev.d, cur.ang - prev.ang, cur.mx - prev.mx, cur.my - prev.my);
+      }
+    }
+    prev = cur;
+    e.preventDefault();
+  });
+  const up = e=>{ pts.delete(e.pointerId); prev = snapshot(); };
+  cv.addEventListener('pointerup', up);
+  cv.addEventListener('pointercancel', up);
+  function snapshot(){
+    const a = [...pts.values()];
+    if(a.length === 0) return null;
+    if(a.length === 1) return {one:true, mx:a[0].x, my:a[0].y};
+    const dx = a[1].x-a[0].x, dy = a[1].y-a[0].y;
+    return {d:Math.hypot(dx,dy)||1, ang:Math.atan2(dy,dx),
+            mx:(a[0].x+a[1].x)/2, my:(a[0].y+a[1].y)/2};
+  }
+}
+addGestures($('cvFace'), {
+  drag:(dx,dy)=>{ fsel.cx+=dx; fsel.cy+=dy; drawFaceSel(); },
+  pinch:(sc,rot,dx,dy)=>{
+    fsel.rx = Math.max(15, fsel.rx*sc); fsel.cx+=dx; fsel.cy+=dy;
+    $('rgFaceSize').value = fsel.rx; drawFaceSel();
+  }
+});
+addGestures($('cvEdit'), {
+  drag:(dx,dy)=>{ ed.x += dx/ed.k; ed.y += dy/ed.k; drawEdit(); },
+  pinch:(sc,rot,dx,dy)=>{
+    ed.s *= sc; ed.rot += rot; ed.x += dx/ed.k; ed.y += dy/ed.k;
+    $('rgScale').value = Math.max(10, Math.min(300, ed.s/ed._s0*100));
+    $('rgRot').value = Math.max(-45, Math.min(45, ed.rot*180/Math.PI));
+    drawEdit();
+  }
+});
+
+/* ---------- 完成・保存 ---------- */
+const PRAISES = ['✨ さいこうに かわいい! ✨','💖 にあってる〜! 💖','🌟 モデルさんみたい! 🌟','🎀 おしゃれ大成功! 🎀','😍 うん、これは優勝 😍'];
+function finish(){
+  // 服画像の自然サイズで書き出し(最大2000px)
+  const nw = clothImg.naturalWidth, nh = clothImg.naturalHeight;
+  const m = Math.min(1, 2000/Math.max(nw,nh));
+  const c = document.createElement('canvas');
+  c.width = Math.round(nw*m); c.height = Math.round(nh*m);
+  const g = c.getContext('2d');
+  g.drawImage(clothImg, 0, 0, c.width, c.height);
+  g.save();
+  g.translate(ed.x*m, ed.y*m);
+  g.rotate(ed.rot);
+  g.scale(ed.s*m*flip, ed.s*m);
+  g.drawImage(faceLayer, -faceLayer.width/2, -faceLayer.height/2);
+  g.restore();
+  exportURL = c.toDataURL('image/png');
+  $('resultImg').src = exportURL;
+  $('praise').textContent = PRAISES[Math.floor(Math.random()*PRAISES.length)];
+  $('resultModal').classList.add('active');
+  confetti();
+}
+function confetti(){
+  const em = ['🎀','💖','✨','🌸','⭐','💫'];
+  for(let i=0;i<26;i++){
+    const s = document.createElement('span');
+    s.className = 'confetti';
+    s.textContent = em[Math.floor(Math.random()*em.length)];
+    s.style.left = Math.random()*100+'vw';
+    s.style.animationDuration = (1.6+Math.random()*1.6)+'s';
+    s.style.animationDelay = (Math.random()*0.5)+'s';
+    document.body.appendChild(s);
+    setTimeout(()=>s.remove(), 4000);
+  }
+}
+function closeResult(){ $('resultModal').classList.remove('active'); }
+function saveResult(){
+  const a = document.createElement('a');
+  a.href = exportURL;
+  a.download = 'kisekae_' + Date.now() + '.png';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+function restart(){
+  closeResult();
+  showScreen('scrHome');
+}
+/* 画面回転・リサイズ対応 */
+window.addEventListener('resize', ()=>{
+  if($('scrFace').classList.contains('active')) gotoFaceSelect();
+  else if($('scrEdit').classList.contains('active')) gotoEdit(false);
+});
+</script>
+</body>
+</html>
